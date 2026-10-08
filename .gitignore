@@ -3,3 +3,6 @@ plugin/dist/
 dist/
 *.piplug
 acceptance/tmp/
+
+# local acceptance scripts (box-specific paths)
+acceptance/tools/
