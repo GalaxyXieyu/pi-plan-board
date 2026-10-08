@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.galaxyxieyu.plan-board",
+  "name": "Plan Board",
+  "version": "0.1.0",
+  "description": "Plan first, then build: the model submits a structured plan, you edit steps, dependencies and the design spec on a card in the chat, approve it, and watch per-step progress while it runs.",
+  "author": "GalaxyXieyu",
+  "license": "MIT",
+  "main": "main.js",
+  "renderer": "renderer/index.mjs",
+  "rendererActions": [
+    "plugin.call",
+    "composer.readDraft",
+    "composer.replaceDraft"
+  ],
+  "rendererCallMethods": [
+    "plan.get",
+    "plan.save",
+    "plan.approve"
+  ],
+  "contributes": {
+    "agentTools": [
+      {
+        "name": "plan",
+        "description": "Plan Board: propose an editable implementation plan to the user, read the approved version, and report step progress. action=submit: send title, summary (markdown) and steps [{id,title,detail?,dependsOn[]}] (at most 24, ids like s1, dependsOn lists ids of earlier steps), optional design {framework, componentLibrary (short names, max 40 chars), styleKeywords[], fontSystem{fontFamily, heading|subheading|body:{size:'24px',weight:600}}, colorSystem{primary|background|text|functional:['#RRGGBB']}}, optional replaces=<old planId>. The user edits and approves it on a card; after submit, end your turn and change no files. action=get with planId: returns the approved revision with steps in dependency order; refuses until the user approved. action=progress with planId, stepId, status (in_progress|completed|skipped|failed), optional note: call when a step starts and when it ends.",
+        "risk": "low",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "submit",
+                "get",
+                "progress"
+              ]
+            },
+            "planId": {
+              "type": "string",
+              "description": "get/progress: the planId submit returned"
+            },
+            "title": {
+              "type": "string",
+              "description": "submit: plan title"
+            },
+            "summary": {
+              "type": "string",
+              "description": "submit: markdown overview, risks, acceptance"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Short unique id, e.g. s1"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string"
+                  },
+                  "dependsOn": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "ids of steps that must finish first"
+                  }
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "dependsOn"
+                ]
+              },
+              "description": "submit: ordered steps with dependencies"
+            },
+            "design": {
+              "type": "object",
+              "description": "submit (optional): UI design spec; only these keys are accepted",
+              "properties": {
+                "framework": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "description": "short name, e.g. html, react, vue"
+                },
+                "componentLibrary": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "description": "short name, e.g. none, shadcn, antd"
+                },
+                "styleKeywords": {
+                  "type": "array",
+                  "maxItems": 12,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 40
+                  }
+                },
+                "fontSystem": {
+                  "type": "object",
+                  "properties": {
+                    "fontFamily": {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    "heading": {
+                      "type": "object",
+                      "properties": {
+                        "size": {
+                          "type": "string",
+                          "description": "10px..72px, e.g. 16px"
+                        },
+                        "weight": {
+                          "type": "integer",
+                          "description": "100..900 in steps of 100"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "subheading": {
+                      "type": "object",
+                      "properties": {
+                        "size": {
+                          "type": "string",
+                          "description": "10px..72px, e.g. 16px"
+                        },
+                        "weight": {
+                          "type": "integer",
+                          "description": "100..900 in steps of 100"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "body": {
+                      "type": "object",
+                      "properties": {
+                        "size": {
+                          "type": "string",
+                          "description": "10px..72px, e.g. 16px"
+                        },
+                        "weight": {
+                          "type": "integer",
+                          "description": "100..900 in steps of 100"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "colorSystem": {
+                  "type": "object",
+                  "properties": {
+                    "primary": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^#[0-9A-Fa-f]{6}$"
+                      }
+                    },
+                    "background": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^#[0-9A-Fa-f]{6}$"
+                      }
+                    },
+                    "text": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^#[0-9A-Fa-f]{6}$"
+                      }
+                    },
+                    "functional": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^#[0-9A-Fa-f]{6}$"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "replaces": {
+              "type": "string",
+              "description": "submit (optional): planId this plan revises"
+            },
+            "stepId": {
+              "type": "string",
+              "description": "progress: the step id"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "in_progress",
+                "completed",
+                "skipped",
+                "failed"
+              ],
+              "description": "progress: new step status"
+            },
+            "note": {
+              "type": "string",
+              "description": "progress (optional): one-line note"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      }
+    ]
+  },
+  "permissions": [
+    "renderer.extension",
+    "agent.tool.register"
+  ],
+  "engines": {
+    "piDesktop": ">=0.17.0"
+  },
+  "activationEvents": [
+    "onStartup"
+  ],
+  "homepage": "https://github.com/GalaxyXieyu/pi-plan-board"
+}
