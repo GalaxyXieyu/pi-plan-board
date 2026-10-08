@@ -1,6 +1,7 @@
 /** "先出计划" toggle in the composer toolbar: adds or removes the plan-first chip. */
 import { createElement as h, useEffect, useState } from "react";
 import { PLAN_FIRST_SEND } from "../lib/tool-spec.mjs";
+import { Icon } from "./icons.mjs";
 import { hasOwnMark, onDraft, replaceDraftNow, rewriteMarks } from "./host.mjs";
 
 const isPlanFirst = (send) => send === PLAN_FIRST_SEND;
@@ -20,8 +21,8 @@ export function PlanFirstToggle() {
       replaceDraftNow((snapshot) =>
         hasOwnMark(snapshot, isPlanFirst)
           ? rewriteMarks(snapshot, { drop: isPlanFirst })
-          : rewriteMarks(snapshot, { add: { label: "📋 先出计划", send: PLAN_FIRST_SEND } }),
+          : rewriteMarks(snapshot, { add: { label: "先出计划", send: PLAN_FIRST_SEND } }),
       ).catch((e) => setError(`${e.code || ""} ${e.message || e}`.trim()));
     },
-  }, h("span", { "aria-hidden": true }, "📋"), " 先出计划");
+  }, h(Icon, { name: "listChecks" }), h("span", null, "先出计划"));
 }

@@ -1,11 +1,11 @@
 /**
  * The Plan Board tool card (`toolCard` slot for the plugin's `plan` tool).
  *
- * submit   → the editable board: steps (title, detail, dependencies as
- *            structured ids shown by title, cycle-guarded), the design spec,
- *            the read-only summary, and Approve / Request changes.
- * get      → one line: the approved revision was read.
- * progress → one line: a step changed status.
+ * submit:   the editable board: steps (title, detail, dependencies kept as
+ *            structured ids, shown as step numbers, cycle-guarded), the design
+ *            spec, the read-only summary, and Approve / Request changes.
+ * get:      one line, the approved revision was read.
+ * progress: one line, a step changed status.
  */
 import { createElement as h, Fragment, useEffect, useReducer, useState } from "react";
 import {
@@ -16,6 +16,7 @@ import {
 import { executeSend, reviseSend } from "../lib/tool-spec.mjs";
 import { approve, board, edit, isDirty, load, predictedRevision, setNotice, subscribe } from "./board-state.mjs";
 import { replaceDraftNow, rewriteMarks } from "./host.mjs";
+import { Icon, STATUS_ICON } from "./icons.mjs";
 import { Markdown } from "./markdown.mjs";
 
 const POLL_ACTIVE_MS = 2000;
@@ -28,7 +29,6 @@ const STATUS_LABEL = {
   completed: "已完成",
   superseded: "已被新版本替代",
 };
-const STEP_ICON = { pending: "○", in_progress: "◐", completed: "✓", skipped: "⤼", failed: "✗" };
 const STEP_LABEL = { pending: "未开始", in_progress: "进行中", completed: "完成", skipped: "跳过", failed: "失败" };
 const COLOR_GROUP_LABEL = { primary: "主色", background: "背景", text: "文字", functional: "功能色" };
 const FONT_LEVEL_LABEL = { heading: "标题", subheading: "副标题", body: "正文" };
@@ -106,23 +106,25 @@ function Pill({ status }) {
 
 function GetRow({ toolArgs, toolStatus, toolResult, toolError }) {
   const revision = fieldFrom(toolResult, "revision");
-  return h("div", { className: "pb-row", "data-pb": "get-row" },
-    h("span", { className: "pb-row-icon" }, "📖"),
-    h("span", null, toolStatus === "error"
-      ? `读取计划失败：${errorText(toolError)}`
-      : toolStatus === "running" ? "正在读取批准的计划…" : `已读取批准的计划 ${toolArgs?.planId || ""} r${revision ?? "?"}，开始执行`));
+  return h("div", { className: "pb-row", "data-pb": "get-row", title: toolArgs?.planId || undefined },
+    h("span", { className: "pb-row-icon" }, h(Icon, { name: "fileCheck" })),
+    h("span", { className: "pb-row-main" }, toolStatus === "error"
+      ? h("span", { className: "pb-error" }, `读取计划失败：${errorText(toolError)}`)
+      : toolStatus === "running" ? "正在读取批准的计划…" : `已读取批准的计划 r${revision ?? "?"}，开始执行`));
 }
 
 function ProgressRow({ toolArgs, toolStatus, toolResult, toolError }) {
   const done = fieldFrom(toolResult, "done");
   const total = fieldFrom(toolResult, "total");
   const status = toolArgs?.status || "";
-  const title = board(toolArgs?.planId || "").server?.steps?.find((s) => s.id === toolArgs?.stepId)?.title;
-  return h("div", { className: `pb-row pb-row--${status}`, "data-pb": "progress-row" },
-    h("span", { className: "pb-row-icon" }, STEP_ICON[status] || "•"),
+  const steps = board(toolArgs?.planId || "").server?.steps || [];
+  const at = steps.findIndex((s) => s.id === toolArgs?.stepId);
+  const name = at >= 0 ? `${at + 1}. ${steps[at].title}` : toolArgs?.stepId || "";
+  return h("div", { className: `pb-row pb-row--${status}`, "data-pb": "progress-row", "data-pb-row-step": toolArgs?.stepId || "" },
+    h("span", { className: "pb-row-icon" }, h(Icon, { name: STATUS_ICON[status] || "circle" })),
     h("span", { className: "pb-row-main" },
-      h("code", null, toolArgs?.stepId || "?"), " ", title || "", " · ", STEP_LABEL[status] || status,
-      toolArgs?.note ? h("span", { className: "pb-muted" }, ` — ${toolArgs.note}`) : null),
+      h("span", { className: "pb-row-title" }, name), h("span", { className: "pb-muted" }, ` ${STEP_LABEL[status] || status}`),
+      toolArgs?.note ? h("span", { className: "pb-row-note" }, toolArgs.note) : null),
     toolStatus === "error"
       ? h("span", { className: "pb-error" }, errorText(toolError))
       : typeof done === "number" ? h("span", { className: "pb-muted" }, `${done}/${total}`) : null);
@@ -173,7 +175,7 @@ function Board({ planId, fallback }) {
     h("div", { className: "pb-tabs", role: "tablist" },
       [["steps", `步骤 ${steps.length}`], ["design", "设计规范"], ["summary", "说明"]].map(([id, label]) =>
         h("button", { key: id, type: "button", role: "tab", className: `pb-tab${tab === id ? " pb-tab--on" : ""}`, "aria-selected": tab === id, "data-pb-tab": id, onClick: () => setTab(id) }, label))),
-    tab === "steps" ? h(StepsTab, { b, steps, editable, progress }) : null,
+    tab === "steps" ? h(StepsTab, { b, steps, editable, running, progress }) : null,
     tab === "design" ? h(DesignTab, { b, design, editable }) : null,
     tab === "summary" ? h("div", { className: "pb-summary", "data-pb": "summary" }, plan.summary ? h(Markdown, { source: plan.summary }) : h("span", { className: "pb-muted" }, "没有说明")) : null,
     b.error ? h("div", { className: "pb-error", "data-pb": "error" }, b.error) : null,
@@ -198,18 +200,19 @@ function nextStepId(steps) {
   return `s${n}`;
 }
 
-function StepsTab({ b, steps, editable, progress }) {
+function StepsTab({ b, steps, editable, running, progress }) {
   const indexOf = new Map(steps.map((s, i) => [s.id, i]));
   return h("div", { className: "pb-steps", "data-pb": "steps" },
-    steps.map((step, i) => h(StepRow, { key: step.id, b, step, i, steps, indexOf, editable, progress: progress[step.id] })),
+    steps.map((step, i) => h(StepRow, { key: step.id, b, step, i, steps, indexOf, editable, running, progress: progress[step.id] })),
     editable && steps.length < PLAN_STEPS_MAX ? h("button", {
       type: "button", className: "pb-add", "data-pb": "add-step",
       onClick: () => edit(b, (d) => ({ ...d, steps: [...d.steps, { id: nextStepId(d.steps), title: "新步骤", dependsOn: [] }] })),
-    }, "+ 添加步骤") : null);
+    }, h(Icon, { name: "plus" }), "添加步骤") : null);
 }
 
-function StepRow({ b, step, i, steps, indexOf, editable, progress }) {
+function StepRow({ b, step, i, steps, indexOf, editable, running, progress }) {
   const [open, setOpen] = useState(false);
+  const [depsOpen, setDepsOpen] = useState(false);
   const status = progress?.status || "pending";
   const update = (patch) => edit(b, (d) => ({ ...d, steps: d.steps.map((s) => (s.id === step.id ? { ...s, ...patch } : s)) }));
   const move = (delta) => edit(b, (d) => {
@@ -223,41 +226,65 @@ function StepRow({ b, step, i, steps, indexOf, editable, progress }) {
     ...d,
     steps: d.steps.filter((s) => s.id !== step.id).map((s) => ({ ...s, dependsOn: s.dependsOn.filter((x) => x !== step.id) })),
   }));
-  const candidates = steps.filter((s) => s.id !== step.id && !step.dependsOn.includes(s.id));
-  const label = (id) => {
-    const at = indexOf.get(id);
-    return at === undefined ? id : `#${at + 1} ${steps[at].title}`;
+  const toggleDep = (id) => {
+    if (step.dependsOn.includes(id)) update({ dependsOn: step.dependsOn.filter((x) => x !== id) });
+    else if (!wouldCreateCycle(steps, step.id, id)) update({ dependsOn: [...step.dependsOn, id] });
   };
-  return h("div", { className: `pb-step pb-step--${status}`, "data-pb-step": step.id, "data-pb-step-status": status },
+  const num = (id) => { const at = indexOf.get(id); return at === undefined ? id : String(at + 1); };
+  const full = (id) => { const at = indexOf.get(id); return at === undefined ? id : `${at + 1}. ${steps[at].title}`; };
+  const hasDeps = step.dependsOn.length > 0;
+  const depsText = hasDeps ? `依赖 ${step.dependsOn.map(num).join("、")}` : "";
+  const depsAttrs = { "data-pb": "deps-line", "data-pb-deps": step.dependsOn.join(","), title: hasDeps ? `依赖：\n${step.dependsOn.map(full).join("\n")}` : "设置依赖" };
+  const hasDetail = editable || Boolean(step.detail);
+  const tool = (name, title, onClick, extra = {}) =>
+    h("button", { type: "button", className: "pb-icon", title, "aria-label": title, onClick, ...extra }, h(Icon, { name }));
+  return h("div", { className: `pb-step pb-step--${status}${depsOpen ? " pb-step--open" : ""}`, "data-pb-step": step.id, "data-pb-step-status": status },
     h("div", { className: "pb-step-main" },
-      h("span", { className: "pb-step-index", title: STEP_LABEL[status] }, editable ? `${i + 1}` : `${STEP_ICON[status]} ${i + 1}`),
+      running ? h("span", { className: `pb-status pb-status--${status}`, title: STEP_LABEL[status] }, h(Icon, { name: STATUS_ICON[status] })) : null,
+      h("span", { className: "pb-step-index" }, `${i + 1}`),
       editable
-        ? h("input", { className: "pb-input pb-step-title", value: step.title, "data-pb": "step-title", "aria-label": `步骤 ${i + 1} 标题`, onChange: (e) => update({ title: e.target.value }) })
+        ? h("input", { className: "pb-step-title", value: step.title, "data-pb": "step-title", "aria-label": `步骤 ${i + 1} 标题`, onChange: (e) => update({ title: e.target.value }) })
         : h("span", { className: "pb-step-title-text" }, step.title),
-      h("code", { className: "pb-id" }, step.id),
-      h("button", { type: "button", className: "pb-icon", title: open ? "收起说明" : "展开说明", "data-pb": "step-detail-toggle", onClick: () => setOpen(!open) }, open ? "▾" : "▸"),
-      editable ? h(Fragment, null,
-        h("button", { type: "button", className: "pb-icon", title: "上移", disabled: i === 0, onClick: () => move(-1) }, "↑"),
-        h("button", { type: "button", className: "pb-icon", title: "下移", disabled: i === steps.length - 1, onClick: () => move(1) }, "↓"),
-        h("button", { type: "button", className: "pb-icon pb-danger", title: "删除步骤", "data-pb": "step-delete", disabled: steps.length <= 1, onClick: remove }, "🗑")) : null),
-    h("div", { className: "pb-deps", "data-pb": "deps" },
-      h("span", { className: "pb-muted" }, step.dependsOn.length ? "依赖：" : "无依赖"),
-      step.dependsOn.map((dep) => h("span", { key: dep, className: "pb-chip", "data-pb-dep": dep, title: label(dep) },
-        h("span", { className: "pb-chip-label" }, label(dep)),
-        editable ? h("button", { type: "button", className: "pb-chip-x", title: "去掉这个依赖", "data-pb": "dep-remove", onClick: () => update({ dependsOn: step.dependsOn.filter((x) => x !== dep) }) }, "×") : null)),
-      editable && candidates.length ? h("select", {
-        className: "pb-select pb-dep-add", value: "", "data-pb": "dep-add", "aria-label": `给步骤 ${i + 1} 加依赖`,
-        onChange: (e) => { const dep = e.target.value; if (dep && !wouldCreateCycle(steps, step.id, dep)) update({ dependsOn: [...step.dependsOn, dep] }); },
-      },
-      h("option", { value: "" }, "+ 依赖…"),
-      candidates.map((s) => {
-        const cycle = wouldCreateCycle(steps, step.id, s.id);
-        return h("option", { key: s.id, value: s.id, disabled: cycle, "data-pb-cycle": cycle ? "1" : "0" }, `${label(s.id)}${cycle ? "（会成环）" : ""}`);
-      })) : null),
+      h("span", { className: "pb-step-tools" },
+        editable && !hasDeps ? h("button", { type: "button", className: "pb-text-btn", "aria-expanded": depsOpen, onClick: () => setDepsOpen(!depsOpen), ...depsAttrs }, "依赖") : null,
+        hasDetail ? tool(open ? "chevronDown" : "chevronRight", open ? "收起说明" : "展开说明", () => setOpen(!open), { "data-pb": "step-detail-toggle", "aria-expanded": open }) : null,
+        editable ? h(Fragment, null,
+          tool("arrowUp", "上移", () => move(-1), { disabled: i === 0, "data-pb": "step-up" }),
+          tool("arrowDown", "下移", () => move(1), { disabled: i === steps.length - 1, "data-pb": "step-down" }),
+          tool("trash", "删除步骤", remove, { disabled: steps.length <= 1, "data-pb": "step-delete" })) : null)),
+    hasDeps ? h("div", { className: "pb-step-meta" },
+      editable
+        ? h("button", { type: "button", className: "pb-deps-line", "aria-expanded": depsOpen, onClick: () => setDepsOpen(!depsOpen), ...depsAttrs }, depsText)
+        : h("span", { className: "pb-deps-line", ...depsAttrs }, depsText)) : null,
+    editable && depsOpen ? h(DepsPanel, { step, steps, onToggle: toggleDep, onClose: () => setDepsOpen(false) }) : null,
     open ? (editable
       ? h("textarea", { className: "pb-input pb-detail", rows: 3, value: step.detail || "", placeholder: "这一步具体做什么、验收标准", "data-pb": "step-detail", onChange: (e) => update({ detail: e.target.value }) })
-      : h("div", { className: "pb-detail-text" }, step.detail || h("span", { className: "pb-muted" }, "没有说明"))) : null,
-    progress?.note && !editable ? h("div", { className: "pb-muted pb-note" }, progress.note) : null);
+      : h("div", { className: "pb-detail-text" }, step.detail)) : null,
+    progress?.note && !editable && !open ? h("div", { className: "pb-note", title: progress.note }, progress.note) : null,
+    progress?.note && !editable && open ? h("div", { className: "pb-detail-text" }, progress.note) : null);
+}
+
+/** Inline checklist for one step's dependencies; options that would close a cycle are disabled. */
+function DepsPanel({ step, steps, onToggle, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const others = steps.map((s, at) => ({ s, at })).filter(({ s }) => s.id !== step.id);
+  return h("div", { className: "pb-deps-panel", "data-pb": "deps-panel", role: "group", "aria-label": "这一步要等哪些步骤完成" },
+    h("div", { className: "pb-deps-head" },
+      h("span", null, "要先完成的步骤"),
+      h("button", { type: "button", className: "pb-icon", title: "收起", "aria-label": "收起", "data-pb": "deps-close", onClick: onClose }, h(Icon, { name: "x" }))),
+    others.length ? others.map(({ s, at }) => {
+      const checked = step.dependsOn.includes(s.id);
+      const cycle = !checked && wouldCreateCycle(steps, step.id, s.id);
+      return h("label", { key: s.id, className: `pb-deps-option${cycle ? " is-disabled" : ""}`, "data-pb-dep-option": s.id, "data-pb-cycle": cycle ? "1" : "0", title: cycle ? `${at + 1}. ${s.title}\n它已经（间接）依赖这一步，选了会形成循环` : `${at + 1}. ${s.title}` },
+        h("input", { type: "checkbox", checked, disabled: cycle, onChange: () => onToggle(s.id) }),
+        h("span", { className: "pb-deps-num" }, String(at + 1)),
+        h("span", { className: "pb-deps-title" }, s.title),
+        cycle ? h("span", { className: "pb-deps-hint" }, "会成环") : null);
+    }) : h("span", { className: "pb-muted" }, "没有其他步骤"));
 }
 
 function Select({ value, options, onChange, editable, placeholder, ...rest }) {
@@ -284,7 +311,7 @@ function DesignTab({ b, design, editable }) {
     h("div", { className: "pb-field pb-field--wide" }, h("label", null, "风格关键词"),
       h("div", { className: "pb-keywords", "data-pb": "keywords" },
         (design.styleKeywords || []).map((k) => h("span", { key: k, className: "pb-chip", "data-pb-keyword": k }, k,
-          editable ? h("button", { type: "button", className: "pb-chip-x", title: "删除", onClick: () => set((d) => prune({ ...d, styleKeywords: (d.styleKeywords || []).filter((x) => x !== k).length ? d.styleKeywords.filter((x) => x !== k) : undefined })) }, "×") : null)),
+          editable ? h("button", { type: "button", className: "pb-chip-x", title: "删除", "aria-label": `删除关键词 ${k}`, onClick: () => set((d) => prune({ ...d, styleKeywords: (d.styleKeywords || []).filter((x) => x !== k).length ? d.styleKeywords.filter((x) => x !== k) : undefined })) }, h(Icon, { name: "x", size: 12 })) : null)),
         editable && (design.styleKeywords || []).length < PLAN_STYLE_KEYWORDS_MAX ? h("form", {
           className: "pb-inline", onSubmit: (e) => {
             e.preventDefault();
@@ -294,7 +321,7 @@ function DesignTab({ b, design, editable }) {
             setKeyword("");
           },
         }, h("input", { className: "pb-input pb-keyword-input", value: keyword, placeholder: "加关键词", "data-pb": "keyword-input", onChange: (e) => setKeyword(e.target.value) }),
-        h("button", { type: "submit", className: "pb-icon", "data-pb": "keyword-add" }, "+")) : null)),
+        h("button", { type: "submit", className: "pb-icon", title: "添加关键词", "aria-label": "添加关键词", "data-pb": "keyword-add" }, h(Icon, { name: "plus" }))) : null)),
     h("div", { className: "pb-field pb-field--wide" }, h("label", null, "字体"),
       font || editable ? h("div", { className: "pb-font" },
         editable ? h(Fragment, null,
@@ -309,7 +336,7 @@ function DesignTab({ b, design, editable }) {
             h("span", { className: "pb-font-name" }, FONT_LEVEL_LABEL[level]),
             h(Select, { value: l?.size, options: PLAN_FONT_SIZE_OPTIONS, editable, placeholder: "字号", "data-pb": `font-${level}-size`, onChange: (v) => v && setLevel({ size: v }) }),
             h(Select, { value: l?.weight, options: PLAN_FONT_WEIGHT_OPTIONS, editable, placeholder: "字重", "data-pb": `font-${level}-weight`, onChange: (v) => v && setLevel({ weight: Number(v) }) }),
-            l ? h("span", { className: "pb-font-preview", style: { fontFamily: font.fontFamily, fontSize: l.size, fontWeight: l.weight } }, "番茄 Aa") : null);
+            l ? h("span", { className: "pb-font-preview", style: { fontFamily: font.fontFamily, fontSize: l.size, fontWeight: l.weight } }, "示例 Aa") : null);
         }) : null) : h("span", { className: "pb-muted" }, "未指定")),
     h("div", { className: "pb-field pb-field--wide" }, h("label", null, "颜色"),
       h("div", { className: "pb-colors", "data-pb": "colors" }, PLAN_COLOR_GROUPS.map((group) => h(ColorGroup, {
@@ -326,7 +353,7 @@ function ColorGroup({ group, colors, editable, onChange }) {
   return h("div", { className: "pb-color-group", "data-pb-color-group": group },
     h("span", { className: "pb-font-name" }, COLOR_GROUP_LABEL[group]),
     colors.map((c, i) => h(ColorSwatch, { key: `${i}-${c}`, color: c, editable, onChange: (next) => onChange(colors.map((x, j) => (j === i ? next : x))), onRemove: () => onChange(colors.filter((_, j) => j !== i)) })),
-    editable && colors.length < PLAN_COLORS_PER_GROUP_MAX ? h("button", { type: "button", className: "pb-icon", title: "加颜色", "data-pb": `color-add-${group}`, onClick: () => onChange([...colors, "#888888"]) }, "+") : null,
+    editable && colors.length < PLAN_COLORS_PER_GROUP_MAX ? h("button", { type: "button", className: "pb-icon", title: "加颜色", "data-pb": `color-add-${group}`, "aria-label": "加颜色", onClick: () => onChange([...colors, "#888888"]) }, h(Icon, { name: "plus" })) : null,
     !editable && !colors.length ? h("span", { className: "pb-muted" }, "—") : null);
 }
 
@@ -337,7 +364,7 @@ function ColorSwatch({ color, editable, onChange, onRemove }) {
   return h("span", { className: "pb-swatch", "data-pb-color": color },
     h("input", { type: "color", value: color.toLowerCase(), onChange: (e) => onChange(e.target.value.toUpperCase()) }),
     h("input", { className: "pb-input pb-hex", value: text, "data-pb": "color-hex", onChange: (e) => { setText(e.target.value); if (PLAN_HEX_COLOR_PATTERN.test(e.target.value.trim())) onChange(e.target.value.trim().toUpperCase()); } }),
-    h("button", { type: "button", className: "pb-chip-x", title: "删除颜色", onClick: onRemove }, "×"));
+    h("button", { type: "button", className: "pb-chip-x", title: "删除颜色", "aria-label": "删除颜色", onClick: onRemove }, h(Icon, { name: "x", size: 12 })));
 }
 
 function ApproveBar({ b, planId }) {
@@ -350,7 +377,7 @@ function ApproveBar({ b, planId }) {
     // The draft rewrite has to start inside this click (PLUGIN_DRAFT_REMOTE).
     const draftWrite = replaceDraftNow((snapshot) => rewriteMarks(snapshot, {
       drop: (send) => send.startsWith("[Plan Board]"),
-      add: { label: `▶ 执行计划 r${revision}`, send: executeSend(planId, revision) },
+      add: { label: `执行计划 r${revision}`, send: executeSend(planId, revision) },
     }));
     setBusy(true);
     Promise.allSettled([draftWrite, approve(b)]).then(([draft, approval]) => {
@@ -369,7 +396,7 @@ function ApproveBar({ b, planId }) {
     if (!text) return;
     replaceDraftNow((snapshot) => rewriteMarks(snapshot, {
       drop: (send) => send.startsWith("[Plan Board]"),
-      add: { label: "✎ 修改计划", send: reviseSend(planId, text) },
+      add: { label: "修改计划", send: reviseSend(planId, text) },
     })).then(() => { setRevising(false); setFeedback(""); setNotice(b, "修改意见已放进输入框，按回车发给模型。"); },
       (e) => setNotice(b, "", `没能填进输入框：${e.code || e.message}`));
   };
@@ -378,7 +405,7 @@ function ApproveBar({ b, planId }) {
       h("textarea", { className: "pb-input", rows: 2, value: feedback, placeholder: "哪里要改？例如：第 3 步拆成两步", "data-pb": "revise-text", onChange: (e) => setFeedback(e.target.value) }),
       h("button", { type: "button", className: "pb-btn", "data-pb": "revise-send", onClick: onRevise, disabled: !feedback.trim() }, "放进输入框"),
       h("button", { type: "button", className: "pb-btn pb-btn--ghost", onClick: () => setRevising(false) }, "取消"))
-      : h("button", { type: "button", className: "pb-btn pb-btn--ghost", "data-pb": "revise", onClick: () => setRevising(true) }, "要改…"),
+      : h("button", { type: "button", className: "pb-btn pb-btn--ghost", "data-pb": "revise", onClick: () => setRevising(true) }, "要修改"),
     h("span", { className: "pb-spacer" }),
     h("button", { type: "button", className: "pb-btn pb-btn--primary", "data-pb": "approve", disabled: busy || Boolean(b.error), onClick: onApprove }, busy ? "批准中…" : "批准并执行"));
 }

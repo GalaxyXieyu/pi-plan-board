@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 (unreleased)
+
+- Restyle: monochrome on host tokens, no emoji anywhere (inline line icons instead).
+- Steps: dependencies shown as one quiet line ("依赖 1、2", full titles on hover); edited in an inline checklist with cycle-forming steps disabled. Step ids hidden; move/delete/detail controls appear on hover or focus.
+- Composer chips: "先出计划", "执行计划 rN", "修改计划" (no symbols).
+
 ## 0.1.0 (unreleased)
 
 - `plan` Agent tool: `submit` / `get` / `progress`.

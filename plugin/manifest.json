@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.galaxyxieyu.plan-board",
   "name": "Plan Board",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plan first, then build: the model submits a structured plan, you edit steps, dependencies and the design spec on a card in the chat, approve it, and watch per-step progress while it runs.",
   "author": "GalaxyXieyu",
   "license": "MIT",
