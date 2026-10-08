@@ -37,7 +37,8 @@ export const PLAN_BOARD_CSS = `
 .pb-detail-text { white-space: pre-wrap; color: var(--ds-text-secondary, #555); padding-left: 28px; }
 .pb-note { padding-left: 28px; font-size: 12px; }
 .pb-deps { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding-left: 28px; font-size: 12px; }
-.pb-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--ds-bg-chip, #f1effa); border-radius: 999px; padding: 0 4px 0 8px; font-size: 12px; max-width: 260px; }
+.pb-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--ds-bg-chip, #f1effa); border-radius: 999px; padding: 0 4px 0 8px; font-size: 12px; max-width: 260px; white-space: nowrap; }
+.pb-chip-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pb-chip-x { border: 0; background: none; cursor: pointer; color: var(--ds-text-muted, #888); padding: 0 4px; font-size: 13px; }
 .pb-select { font: inherit; font-size: 12px; border: 1px solid var(--ds-border-default, #ddd); border-radius: 6px; padding: 2px 4px; background: var(--ds-bg-elevated, #fff); color: inherit; max-width: 240px; }
 .pb-icon { border: 0; background: none; cursor: pointer; padding: 2px 5px; border-radius: 5px; color: var(--ds-text-secondary, #666); font: inherit; }

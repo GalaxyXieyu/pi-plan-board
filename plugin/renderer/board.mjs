@@ -177,7 +177,7 @@ function Board({ planId, fallback }) {
     tab === "design" ? h(DesignTab, { b, design, editable }) : null,
     tab === "summary" ? h("div", { className: "pb-summary", "data-pb": "summary" }, plan.summary ? h(Markdown, { source: plan.summary }) : h("span", { className: "pb-muted" }, "没有说明")) : null,
     b.error ? h("div", { className: "pb-error", "data-pb": "error" }, b.error) : null,
-    b.notice ? h("div", { className: "pb-notice", "data-pb": "notice" }, b.notice) : null,
+    b.notice && plan.status !== "superseded" && plan.status !== "completed" ? h("div", { className: "pb-notice", "data-pb": "notice" }, b.notice) : null,
     editable ? h(ApproveBar, { b, planId }) : null,
     plan.status === "approved" ? h("div", { className: "pb-notice", "data-pb": "approved-hint" }, `已批准 r${plan.revision}。在输入框按回车发送「执行计划」，模型就会按这个版本开始做。`) : null,
     plan.status === "superseded" ? h("div", { className: "pb-muted" }, `这个计划已被 ${plan.supersededBy || "新版本"} 替代。`) : null);
@@ -242,8 +242,8 @@ function StepRow({ b, step, i, steps, indexOf, editable, progress }) {
         h("button", { type: "button", className: "pb-icon pb-danger", title: "删除步骤", "data-pb": "step-delete", disabled: steps.length <= 1, onClick: remove }, "🗑")) : null),
     h("div", { className: "pb-deps", "data-pb": "deps" },
       h("span", { className: "pb-muted" }, step.dependsOn.length ? "依赖：" : "无依赖"),
-      step.dependsOn.map((dep) => h("span", { key: dep, className: "pb-chip", "data-pb-dep": dep },
-        label(dep),
+      step.dependsOn.map((dep) => h("span", { key: dep, className: "pb-chip", "data-pb-dep": dep, title: label(dep) },
+        h("span", { className: "pb-chip-label" }, label(dep)),
         editable ? h("button", { type: "button", className: "pb-chip-x", title: "去掉这个依赖", "data-pb": "dep-remove", onClick: () => update({ dependsOn: step.dependsOn.filter((x) => x !== dep) }) }, "×") : null)),
       editable && candidates.length ? h("select", {
         className: "pb-select pb-dep-add", value: "", "data-pb": "dep-add", "aria-label": `给步骤 ${i + 1} 加依赖`,
